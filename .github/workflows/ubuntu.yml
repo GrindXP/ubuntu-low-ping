@@ -1,0 +1,107 @@
+name: Low-Latency Ubuntu RDP
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  nomachine-desktop:
+    runs-on: ubuntu-22.04  # 22.04 more stable than 24.04
+
+    steps:
+      - name: Install XFCE Desktop
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            xfce4 xfce4-goodies xfce4-terminal firefox dbus-x11 \
+            lightdm lightdm-gtk-greeter
+          echo "✅ XFCE installed"
+
+      - name: Configure XFCE (Low Latency)
+        run: |
+          # Disable compositing for max perf
+          sudo mkdir -p /etc/xdg/xfce4/xfconf/xfce-perchannel-xml
+          sudo bash -c 'cat > /etc/xdg/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml' << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <channel name="xfce4-desktop" version="1.0">
+            <property name="backdrop" type="array">
+              <property name="screen0" type="array">
+                <property name="monitor0" type="array">
+                  <property name="workspace0" type="string" value="/usr/share/backgrounds/xfce/xfce-flower.png"/>
+                  <property name="last-image" type="string" value="/usr/share/backgrounds/xfce/xfce-flower.png"/>
+                </property>
+              </property>
+            </property>
+            <property name="show-frame-shadows" type="bool" value="false"/>
+            <property name="show-windows-preview" type="bool" value="false"/>
+          </channel>
+          EOF
+          
+          # Disable animations
+          sudo xfconf-query -c xfwm4 -p /general/show_frame_shadow -s false
+          sudo xfconf-query -c xfwm4 -p /general/snap_resist -s 0
+          sudo xfconf-query -c xsettings -p /Net/ThemeName -s "Greybird"
+          sudo xfconf-query -c xsettings -p /Net/IconThemeName -s "Greybird"
+
+      - name: Install NoMachine (Best Performance)
+        run: |
+          cd /tmp
+          wget https://download.nomachine.com/download/8.14/Linux/nomachine_8.14.2_1_amd64.deb
+          sudo dpkg -i nomachine_8.14.2_1_amd64.deb || sudo apt-get install -f -y
+          
+          # Configure for XFCE + max performance
+          sudo sed -i 's/DefaultDesktopCommand ".*"/DefaultDesktopCommand "startxfce4"/' /usr/NX/etc/node.cfg
+          sudo sed -i 's/EnableSSDVirt=true/EnableSSDVirt=true/' /usr/NX/etc/node.cfg
+          sudo sed -i 's/SessionTimeout=60/SessionTimeout=3600/' /usr/NX/etc/node.cfg
+          
+          # Start NoMachine
+          sudo /usr/NX/bin/nxserver --startup
+          echo "✅ NoMachine installed & configured"
+
+      - name: Install & Connect Tailscale
+        env:
+          TAILSCALE_AUTH_KEY: ${{ secrets.TAILSCALE_AUTH_KEY }}
+        run: |
+          curl -fsSL https://tailscale.com/install.sh | sh
+          sudo tailscale up --authkey=${TAILSCALE_AUTH_KEY} --advertise-tags=tag:github-actions
+          sleep 3
+          TS_IP=$(tailscale ip -4)
+          echo "TAILSCALE_IP=$TS_IP" >> $GITHUB_ENV
+          echo "✅ Tailscale: $TS_IP"
+
+      - name: Connection Info (NoMachine)
+        run: |
+          echo "╔═══════════════════════════════════════╗"
+          echo "║  🖥️ NoMachine (LOW LATENCY)          ║"
+          echo "╠═══════════════════════════════════════╣"
+          echo "║  IP:    $TAILSCALE_IP                ║"
+          echo "║  Port:  4000 (NX Protocol)           ║"
+          echo "║  User:  runner                       ║"
+          echo "║  Pass:  github2024                   ║"
+          echo "╚═══════════════════════════════════════╝"
+          echo ""
+          echo "📱 Download NoMachine Client:"
+          echo "   Windows: nomachine.com/download"
+          echo "   macOS: nomachine.com/download"
+          echo "   Linux: nomachine.com/download"
+          echo ""
+          echo "⚡ Connect → New → IP Address → $TAILSCALE_IP:4000"
+
+      - name: Firewall (Allow NoMachine Ports)
+        run: |
+          sudo ufw allow 4000/tcp
+          sudo ufw allow 4022/tcp  # fallback SSH
+          sudo ufw --force enable
+          echo "✅ Firewall configured"
+
+      - name: Keep Alive & Monitor
+        run: |
+          while true; do
+            sudo /usr/NX/bin/nxserver --status | grep -q "running" || sudo /usr/NX/bin/nxserver --startup
+            systemctl is-active --quiet lightdm || sudo systemctl restart lightdm
+            tailscale status > /dev/null || sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }}
+            
+            echo "[$(date '+%H:%M:%S')] ✅ NoMachine Active | IP: $(tailscale ip -4) | Users: $(sudo /usr/NX/bin/nxserver --list | wc -l)"
+            sleep 180
+          done
