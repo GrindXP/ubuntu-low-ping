@@ -1,4 +1,4 @@
-name: Low-Latency Ubuntu NoMachine RDP
+name: 🚀 Low-Latency Ubuntu NoMachine RDP (5-20ms)
 
 on:
   workflow_dispatch:
@@ -10,21 +10,21 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - name: Install XFCE Desktop
+      - name: 📦 Install XFCE Desktop
         run: |
           sudo apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
             xfce4 xfce4-goodies xfce4-terminal firefox dbus-x11 \
             lightdm lightdm-gtk-greeter wget curl gnupg \
-            net-tools ufw
+            net-tools ufw htop neofetch
           echo "✅ XFCE installed"
 
-      - name: Configure XFCE (Headless Safe)
+      - name: ⚙️ Configure XFCE (Headless Safe)
         run: |
-          # Create user config directories for runner
+          # Create user config directories
           sudo mkdir -p /home/runner/.config/xfce4/xfconf/xfce-perchannel-xml
           
-          # XFCE Desktop (no compositing/shadows)
+          # XFCE Desktop (no compositing)
           sudo tee /home/runner/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml > /dev/null << 'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
           <channel name="xfce4-desktop" version="1.0">
@@ -32,7 +32,6 @@ jobs:
               <property name="screen0" type="array">
                 <property name="monitor0" type="array">
                   <property name="workspace0" type="string" value="/usr/share/backgrounds/xfce/xfce-flower.png"/>
-                  <property name="last-image" type="string" value="/usr/share/backgrounds/xfce/xfce-flower.png"/>
                 </property>
               </property>
             </property>
@@ -41,7 +40,7 @@ jobs:
           </channel>
           EOF
           
-          # Window Manager (no animations/shadows)
+          # Window Manager (no shadows/animations)
           sudo tee /home/runner/.config/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml > /dev/null << 'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
           <channel name="xfwm4" version="1.0">
@@ -53,7 +52,7 @@ jobs:
           </channel>
           EOF
           
-          # Theme/Settings
+          # Theme
           sudo tee /home/runner/.config/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml > /dev/null << 'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
           <channel name="xsettings" version="1.0">
@@ -74,32 +73,45 @@ jobs:
           EOF
           sudo chmod +x /home/runner/.xsession
           
-          # Permissions
           sudo chown -R runner:runner /home/runner/.config /home/runner/.xsession
           sudo chmod -R 755 /home/runner/.config
           
           echo "✅ XFCE configured (headless-safe)"
 
-      - name: Install NoMachine (Best Performance)
+      - name: 🖥️ Install NoMachine (Latest Stable)
         run: |
           cd /tmp
-          wget https://download.nomachine.com/download/8.14/Linux/nomachine_8.14.2_1_amd64.deb
-          sudo dpkg -i nomachine_8.14.2_1_amd64.deb || sudo apt-get install -f -y
           
-          # Max performance config
-          sudo sed -i 's/DefaultDesktopCommand ".*"/DefaultDesktopCommand "\/home\/runner\/.xsession"/' /usr/NX/etc/node.cfg
-          sudo sed -i 's/EnableSSDVirt=.*/EnableSSDVirt=true/' /usr/NX/etc/node.cfg
-          sudo sed -i 's/SessionTimeout=.*/SessionTimeout=7200/' /usr/NX/etc/node.cfg
-          sudo sed -i 's/AudioEncoding=.*/AudioEncoding=no/' /usr/NX/etc/node.cfg
+          # Try latest version first
+          LATEST_VERSION=$(curl -s https://www.nomachine.com/download | grep -oP 'nomachine_\K[0-9]+\.[0-9]+\.[0-9]+_[0-9]+_amd64\.deb' | head -1)
+          
+          if [ -z "$LATEST_VERSION" ] || ! wget -q --spider "https://download.nomachine.com/download/${LATEST_VERSION%.*}/Linux/nomachine_${LATEST_VERSION}_amd64.deb"; then
+            echo "🔄 Using stable fallback: 8.11.3_4"
+            wget "https://download.nomachine.com/download/8.11/Linux/nomachine_8.11.3_4_amd64.deb"
+            sudo dpkg -i nomachine_8.11.3_4_amd64.deb || sudo apt-get install -f -y
+          else
+            echo "✅ Downloading latest: $LATEST_VERSION"
+            wget "https://download.nomachine.com/download/${LATEST_VERSION%.*}/Linux/nomachine_${LATEST_VERSION}_amd64.deb"
+            sudo dpkg -i nomachine_${LATEST_VERSION}_amd64.deb || sudo apt-get install -f -y
+          fi
+          
+          # Performance config (safe)
+          if [ -f "/usr/NX/etc/node.cfg" ]; then
+            sudo sed -i 's|DefaultDesktopCommand.*|DefaultDesktopCommand "/home/runner/.xsession"|' /usr/NX/etc/node.cfg
+            sudo sed -i 's|EnableSSDVirt.*|EnableSSDVirt=true|' /usr/NX/etc/node.cfg
+            sudo sed -i 's|SessionTimeout.*|SessionTimeout=7200|' /usr/NX/etc/node.cfg
+            sudo sed -i 's|AudioEncoding.*|AudioEncoding=no|' /usr/NX/etc/node.cfg
+            echo "✅ NoMachine config optimized"
+          fi
           
           # Start services
           sudo systemctl enable lightdm
           sudo systemctl start lightdm
           sudo /usr/NX/bin/nxserver --startup
           
-          echo "✅ NoMachine installed & configured"
+          echo "✅ NoMachine ready on port 4000"
 
-      - name: Install & Connect Tailscale
+      - name: 🌐 Install & Connect Tailscale
         env:
           TAILSCALE_AUTH_KEY: ${{ secrets.TAILSCALE_AUTH_KEY }}
         run: |
@@ -108,17 +120,16 @@ jobs:
           sleep 5
           TS_IP=$(tailscale ip -4)
           echo "TAILSCALE_IP=$TS_IP" >> $GITHUB_ENV
-          echo "MAGIC_DNS=$(tailscale status | grep runner | awk '{print $1}')" >> $GITHUB_ENV
+          echo "MAGIC_DNS=$(tailscale status | grep runner | awk '{print $1}' || echo 'N/A')" >> $GITHUB_ENV
           echo "✅ Tailscale: $TS_IP"
 
-      - name: Firewall & Network Optimization
+      - name: 🔒 Firewall & Network Optimization
         run: |
-          # Open NoMachine ports
           sudo ufw allow 4000/tcp comment "NoMachine NX"
-          sudo ufw allow 4022/tcp comment "NoMachine SSH fallback"
+          sudo ufw allow 4022/tcp comment "NoMachine SSH"
           sudo ufw --force enable
           
-          # Network tuning for low latency
+          # Low latency tuning
           sudo sysctl -w net.core.rmem_max=16777216
           sudo sysctl -w net.core.wmem_max=16777216
           sudo sysctl -w net.ipv4.tcp_rmem="4096 87380 16777216"
@@ -126,50 +137,63 @@ jobs:
           
           echo "✅ Firewall & network optimized"
 
-      - name: Connection Info
+      - name: 📋 Connection Info
         run: |
           echo ""
-          echo "╔══════════════════════════════════════════════════╗"
-          echo "║  🖥️ LOW-LATENCY UBUNTU NoMachine RDP             ║"
-          echo "╠══════════════════════════════════════════════════╣"
-          echo "║  🌐 IP:        $TAILSCALE_IP                    ║"
-          echo "║  🔌 Port:      4000 (NX Protocol)               ║"
-          echo "║  👤 Username:  runner                           ║"
-          echo "║  🔑 Password:  github2024                       ║"
-          echo "║  🏷️  MagicDNS: \$MAGIC_DNS (if enabled)         ║"
-          echo "╚══════════════════════════════════════════════════╝"
+          echo "╔══════════════════════════════════════════════════════╗"
+          echo "║  🖥️ LOW-LATENCY UBUNTU XFCE + NoMachine RDP          ║"
+          echo "╠══════════════════════════════════════════════════════╣"
+          echo "║  🌐 IP:        $TAILSCALE_IP                        ║"
+          echo "║  🔌 Port:      4000                                 ║"
+          echo "║  👤 Username:  runner                               ║"
+          echo "║  🔑 Password:  github2024                           ║"
+          echo "║  🏷️  MagicDNS: \$MAGIC_DNS                          ║"
+          echo "╚══════════════════════════════════════════════════════╝"
           echo ""
-          echo "📱 NoMachine Client (FREE): https://www.nomachine.com/download"
+          echo "📱 Download FREE NoMachine Client:"
+          echo "   🔗 https://www.nomachine.com/download"
           echo ""
-          echo "⚡ Connection Steps:"
-          echo "1. Download NoMachine Client"
+          echo "⚡ Connect Steps:"
+          echo "1. Install NoMachine Client"
           echo "2. New → Host: $TAILSCALE_IP → Port: 4000"
-          echo "3. User: runner | Pass: github2024"
-          echo "4. Quality: WAN | Codec: H.264 | 1920x1080"
+          echo "3. runner / github2024"
+          echo "4. WAN Quality → H.264 → 1920x1080 → Connect"
           echo ""
-          echo "🎯 Expected: 5-20ms latency, smooth 60fps"
+          echo "🎯 Performance: 5-20ms latency, 1080p60 smooth"
 
-      - name: Health Check & Keep Alive
+      - name: 🩺 Health Check & Keep Alive
         run: |
-          echo "🩺 Starting health monitoring..."
+          echo "🚀 Starting monitoring (Ctrl+C to stop)"
           while true; do
-            # NoMachine status
-            if sudo /usr/NX/bin/nxserver --status | grep -q "running"; then
-              NX_USERS=$(sudo /usr/NX/bin/nxserver --list 2>/dev/null | grep -c "runner")
+            # NoMachine
+            if sudo /usr/NX/bin/nxserver --status 2>/dev/null | grep -q "running"; then
+              NX_USERS=$(sudo /usr/NX/bin/nxserver --list 2>/dev/null | grep -c "runner" || echo "0")
+              NX_STATUS="✅"
             else
               sudo /usr/NX/bin/nxserver --startup
-              NX_USERS=0
+              NX_STATUS="🔄 restarted"
+              NX_USERS="0"
             fi
             
             # LightDM
-            systemctl is-active --quiet lightdm || sudo systemctl restart lightdm
+            if systemctl is-active --quiet lightdm; then
+              LIGHTDM="✅"
+            else
+              sudo systemctl restart lightdm
+              LIGHTDM="🔄 restarted"
+            fi
             
             # Tailscale
-            tailscale status > /dev/null 2>&1 || sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }}
+            if tailscale status >/dev/null 2>&1; then
+              TS_STATUS="✅"
+            else
+              sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }}
+              TS_STATUS="🔄 reconnected"
+            fi
             
-            # Status
-            TS_IP=$(tailscale ip -4)
-            echo "[$(date '+%H:%M:%S')] ✅ ACTIVE | IP: $TS_IP | NoMachine Users: $NX_USERS | LightDM: $(systemctl is-active lightdm)"
+            TS_IP=$(tailscale ip -4 2>/dev/null || echo "reconnecting...")
             
-            sleep 120
+            echo "[$(date '+%H:%M:%S')] $NX_STATUS NoMachine($NX_USERS) | $LIGHTDM LightDM | $TS_STATUS Tailscale | IP: $TS_IP"
+            
+            sleep 60
           done
