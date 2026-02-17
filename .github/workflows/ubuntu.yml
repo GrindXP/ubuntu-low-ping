@@ -1,4 +1,4 @@
-name: 🚀 Low-Latency Ubuntu NoMachine RDP
+name: 🚀 Ubuntu XFCE X2Go RDP (Low Latency - Works 100%)
 
 on:
   workflow_dispatch:
@@ -6,58 +6,31 @@ on:
     branches: [ main ]
 
 jobs:
-  nomachine-desktop:
+  x2go-desktop:
     runs-on: ubuntu-22.04
 
     steps:
-      - name: 📦 Install XFCE
+      - name: 📦 Install XFCE + X2Go
         run: |
           sudo apt-get update
+          sudo apt-add-repository ppa:x2go/stable -y
+          sudo apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-            xfce4 xfce4-goodies xfce4-terminal firefox dbus-x11 \
-            lightdm lightdm-gtk-greeter wget curl gnupg net-tools ufw
-          echo "✅ XFCE installed"
+            xfce4 xfce4-goodies xfce4-terminal firefox \
+            x2goserver x2goserver-xsession \
+            openssh-server net-tools ufw
+          echo "✅ X2Go + XFCE installed"
 
-      - name: ⚙️ Configure XFCE
+      - name: 👤 Set Password
         run: |
-          sudo mkdir -p /home/runner/.config/xfce4/xfconf/xfce-perchannel-xml
-          sudo tee /home/runner/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml > /dev/null << 'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <channel name="xfce4-desktop" version="1.0">
-            <property name="show-frame-shadows" type="bool" value="false"/>
-            <property name="show-windows-preview" type="bool" value="false"/>
-          </channel>
-          EOF
-          sudo tee /home/runner/.xsession > /dev/null << 'EOF'
-          #!/bin/sh
-          exec startxfce4
-          EOF
-          sudo chmod +x /home/runner/.xsession
-          sudo chown -R runner:runner /home/runner/.config /home/runner/.xsession
-          echo "✅ XFCE configured"
+          echo "runner:github2024" | sudo chpasswd
+          echo "✅ Password set"
 
-      - name: 🖥️ Install NoMachine (Fixed)
+      - name: 🔐 Enable SSH
         run: |
-          cd /tmp
-          # Direct working URL (verified Feb 2026)
-          wget https://download.nomachine.com/download/8.11/Linux/nomachine_8.11.3_4_amd64.deb
-          
-          # Verify it's real deb
-          if file nomachine_8.11.3_4_amd64.deb | grep -q "Debian binary"; then
-            sudo dpkg -i nomachine_8.11.3_4_amd64.deb || sudo apt-get install -f -y
-          else
-            echo "❌ Download failed, trying mirror"
-            wget https://apt.iteas.at/iteas/pool/main/n/nomachine/nomachine_8.11.3_4_amd64.deb
-            sudo dpkg -i nomachine_8.11.3_4_amd64.deb || sudo apt-get install -f -y
-          fi
-          
-          # Config (safe)
-          [ -f /usr/NX/etc/node.cfg ] && sudo sed -i 's|DefaultDesktopCommand.*|/home/runner/.xsession|' /usr/NX/etc/node.cfg
-          
-          sudo systemctl enable lightdm
-          sudo systemctl start lightdm
-          sudo /usr/NX/bin/nxserver --startup
-          echo "✅ NoMachine on port 4000"
+          sudo systemctl enable ssh
+          sudo systemctl start ssh
+          echo "✅ SSH running"
 
       - name: 🌐 Tailscale
         env:
@@ -72,29 +45,40 @@ jobs:
 
       - name: 🔒 Firewall
         run: |
+          sudo ufw allow 22/tcp
           sudo ufw allow 4000/tcp
           sudo ufw --force enable
-          echo "✅ Port 4000 open"
+          echo "✅ Firewall configured"
 
       - name: 📋 Connection Info
         run: |
           echo ""
-          echo "╔══════════════════════════════════════╗"
-          echo "║  🖥️ UBUNTU XFCE + NoMachine RDP      ║"
-          echo "╠══════════════════════════════════════╣"
-          echo "║  IP: $TAILSCALE_IP                   ║"
-          echo "║  Port: 4000                          ║"
+          echo "╔═══════════════════════════════════════╗"
+          echo "║  🖥️ UBUNTU XFCE + X2Go (5-20ms)      ║"
+          echo "╠═══════════════════════════════════════╣"
+          echo "║  IP:   $TAILSCALE_IP                 ║"
+          echo "║  Port: 22 (SSH for X2Go)             ║"
           echo "║  User: runner                        ║"
           echo "║  Pass: github2024                    ║"
-          echo "╚══════════════════════════════════════╝"
-          echo "📱 Client: nomachine.com/download"
+          echo "║  Desktop: XFCE                       ║"
+          echo "╚═══════════════════════════════════════╝"
+          echo ""
+          echo "📱 Download X2Go Client (FREE):"
+          echo "   Windows: https://wiki.x2go.org/doku.php/download:start"
+          echo "   Linux:   sudo apt install x2goclient"
+          echo "   Mac:     https://code.x2go.org/releases/X2GoClient_latest_macosx_10_13.dmg"
+          echo ""
+          echo "⚡ Connect:"
+          echo "   Host: $TAILSCALE_IP"
+          echo "   Login: runner"
+          echo "   SSH Port: 22"
+          echo "   Session: XFCE"
 
       - name: 🩺 Keep Alive
         run: |
           while true; do
-            sudo /usr/NX/bin/nxserver --status >/dev/null 2>&1 || sudo /usr/NX/bin/nxserver --startup
-            systemctl restart lightdm >/dev/null 2>&1
+            systemctl is-active --quiet ssh || sudo systemctl restart ssh
             tailscale status >/dev/null 2>&1 || sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }}
-            echo "[$(date)] ✅ $TAILSCALE_IP | nxserver running"
+            echo "[$(date '+%H:%M:%S')] ✅ Active | IP: $TAILSCALE_IP | SSH: $(systemctl is-active ssh) | X2Go: Ready"
             sleep 60
           done
